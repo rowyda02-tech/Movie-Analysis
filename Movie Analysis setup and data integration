@@ -1,0 +1,349 @@
+# Setup
+
+!pip install ydata-profiling
+
+#import the necessary libraries
+import google.colab
+import pandas as pd
+from dateutil.parser import parse
+import os
+import requests
+import time
+from ydata_profiling import ProfileReport
+
+#mount the drive to colab and connect it to the shared folder
+google.colab.drive.mount('/content/drive')
+PROJECT_DIR = "/content/drive/MyDrive/data_man_project/"
+
+# IMDB dataset importation and profiling
+
+#read the csv file of the IMDB dataset from drive
+imdb = pd.read_csv(PROJECT_DIR+"IMDB-Movie-Data.csv")
+imdb
+
+#transform it into a dataframe for an easier analysis
+imdb=pd.DataFrame(imdb)
+imdb
+
+profile_imdb = ProfileReport(imdb, title="Data Quality Report of imdb dataset", explorative=True)
+profile_imdb.to_notebook_iframe()
+
+# Save the report to an HTML file
+profile_imdb.to_file(os.path.join(PROJECT_DIR, "imdb_report.html"))
+
+missing_imdb_metascore= imdb['Metascore'].isna().sum()
+missing_imdb_revenue= imdb['Revenue (Millions)'].isna().sum()
+
+print("The number of missing values for revenue is", missing_imdb_revenue)
+print("The number of missing values for metascore is",  missing_imdb_metascore)
+
+dupe_titles=imdb[imdb['Title'].duplicated(keep=False)]
+dupe_titles
+
+# Extracting TMDB Data Using API
+
+#impirtation of the language csv for further association
+language = pd.read_csv(PROJECT_DIR+"lang.csv")
+language = pd.DataFrame(language)
+language = language.drop(['name'], axis=1)
+language = language.rename(columns={"iso_639_1": "original_language"})
+language_dict = language.set_index("original_language")["english_name"].to_dict()
+language
+
+# Define API Key, Base URL and file name
+FILE_NAME = "tmdb_movies_with_details.csv"
+
+#Used in the project to retrive the data using the tmdb api but commented out to speed up the process and avoid collecting the data in every run
+"""
+API_KEY = "bc01815881c0d23507c427f53813e654"
+BASE_URL = "https://api.themoviedb.org/3"
+
+
+#Function to Fetch Movies Data with Date Range
+def fetch_movies(page, start_year="2006-01-01", end_year="2016-12-31"):
+    url = f"{BASE_URL}/discover/movie"
+    params = {
+        "api_key": API_KEY,
+        "page": page,
+        "primary_release_date.gte": start_year,
+        "primary_release_date.lte": end_year,
+        "sort_by": "popularity.desc"
+    }
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        return response.json().get("results", [])
+    else:
+        print(f"Error fetching page {page}: {response.status_code}")
+        return []
+
+
+#Function to Fetch Additional Movie Details (Genres, Runtime, Revenue)
+def fetch_additional_details(movie_id):
+    url = f"{BASE_URL}/movie/{movie_id}"
+    params = {"api_key": API_KEY}
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        details = response.json()
+        genres = [genre['name'] for genre in details.get("genres", [])]
+        runtime = details.get("runtime")  # Runtime in minutes
+        revenue = details.get("revenue", None)  # Revenue in dollars
+        language_code = details.get("original_language", "")
+        language_name = language_dict.get(language_code, "Unknown")
+        return ", ".join(genres), runtime, revenue, language_name
+    else:
+        print(f"Error fetching additional details for movie ID {movie_id}: {response.status_code}")
+        return None, None, None, None
+
+#Function to Fetch Credits (Director and Actors)
+def fetch_movie_credits(movie_id):
+    url = f"{BASE_URL}/movie/{movie_id}/credits"
+    params = {"api_key": API_KEY}
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        credits = response.json()
+        director = None
+        actors = []
+        for crew_member in credits.get("crew", []):
+            if crew_member.get("job") == "Director":
+                director = crew_member.get("name")
+                break
+        for cast_member in credits.get("cast", [])[:5]:  # Top 5 actors
+            actors.append(cast_member.get("name"))
+        return director, ", ".join(actors)
+    else:
+        print(f"Error fetching credits for movie ID {movie_id}: {response.status_code}")
+        return None, None
+
+#Extract Movie Data
+all_movies = []
+pages_to_fetch = 100  # 2000 movies / 20 movies per page
+
+for page in range(1, pages_to_fetch + 1):
+    #print(f"Fetching page {page}...")
+    movies = fetch_movies(page)
+    for movie in movies:
+        movie_id = movie.get("id")
+        director, actors = fetch_movie_credits(movie_id)
+        genres, runtime, revenue, lang = fetch_additional_details(movie_id)
+        all_movies.append({
+            "Rank": len(all_movies) + 1,
+            "id": movie.get("id"),
+            "Title": movie.get("title"),
+            "Genre": genres,
+            "Description": movie.get("overview"),
+            "Director": director,
+            "Actors": actors,
+            "Runtime (Minutes)": runtime,
+            "Rating": movie.get("vote_average"),
+            "Votes": movie.get("vote_count"),
+            "Revenue (Millions)": round(revenue / 1e6, 2) if revenue else None,  # Convert to millions
+            "original_title": movie.get("original_title"),
+            "popularity": movie.get("popularity"),
+            "release_year": movie.get("release_date", "").split("-")[0],
+            "language": lang,
+        })
+    time.sleep(1)  # Avoid hitting API rate limits
+
+# Save Data to CSV
+if all_movies:
+    tmdb = pd.DataFrame(all_movies)
+    save_path = os.path.join(PROJECT_DIR, FILE_NAME)
+    tmdb.to_csv(save_path, index=False)
+    print(f"Successfully saved {len(all_movies)} movies to {save_path}")
+else:
+    print("No movies retrieved.")
+"""
+
+# TMDB dataset importation and profiling
+
+tmdb = pd.read_csv(PROJECT_DIR+FILE_NAME)
+tmdb = pd.DataFrame(tmdb)
+
+profile_tmdb = ProfileReport(tmdb, title="Data Quality Report of tmdb dataset", explorative=True)
+profile_tmdb.to_notebook_iframe()
+
+# Save the report to an HTML file
+profile_tmdb.to_file(os.path.join(PROJECT_DIR, "tmdb_report.html"))
+
+missing_tmdb_genre= tmdb['Genre'].isna().sum()
+missing_tmdb_revenue= tmdb['Revenue (Millions)'].isna().sum()
+missing_tmdb_description= tmdb['Description'].isna().sum()
+missing_tmdb_director= tmdb['Director'].isna().sum()
+missing_tmdb_actors= tmdb['Actors'].isna().sum()
+
+print("The number of missing values for revenue is", missing_tmdb_revenue)
+print("The number of missing values for genre is",  missing_tmdb_genre)
+print("The number of missing values for description is",  missing_tmdb_description)
+print("The number of missing values for director is",  missing_tmdb_director)
+print("The number of missing values for actors is",  missing_tmdb_actors)
+
+dupe_titles=tmdb[tmdb['Title'].duplicated(keep=False)]
+dupe_titles
+
+# Pre-Integration
+
+tmdb.info()
+imdb.info()
+
+# Rename columns to homogenize them
+imdb.rename(
+    columns={
+        'Runtime (Minutes)': 'Runtime_Minutes',
+        'Revenue (Millions)': 'Revenue_Millions',
+    },
+    inplace=True
+)
+
+tmdb.rename(
+    columns={
+        'id': 'ID',
+        'original_title': 'Original_Title',
+        'Runtime (Minutes)': 'Runtime_Minutes',
+        'Revenue (Millions)': 'Revenue_Millions',
+        'popularity': 'Popularity',
+        'release_year': 'Year',
+        'language': 'Language',
+    },
+    inplace=True
+)
+
+
+
+# Merge two sources using combination of titles and years
+## First, we add a 'title_year' column in both for merging
+imdb['Title_Year'] = imdb['Title'].str.lower().str.strip() + "_" + imdb['Year'].astype(str)
+tmdb['Title_Year'] = tmdb['Title'].str.lower().str.strip() + "_" + tmdb['Year'].astype(str)
+
+imdb
+
+# Intergrating Two DataSets
+
+# Perform an inner join on (title, year) to identify the same movie
+merged_df = pd.merge(
+    imdb,
+    tmdb,
+    on='Title_Year',          # joining key
+    how='inner',             # or 'inner', depending on your use case
+    suffixes=('_imdb','_tmdb')
+)
+print(f"Merged DataFrame shape: {merged_df.shape}")
+
+merged_df
+
+merged_df.info()
+
+# merged_df now has columns from both DataFrames.
+# Next, we'll map them into our integrated schema.
+
+# We initialize the final integrated DataFrame with the desired columns
+integrated_rows = []
+
+for idx, row in merged_df.iterrows():
+    # Create a dictionary to hold the integrated row
+    integrated_row = {}
+
+    integrated_row['ID'] = idx
+    integrated_row['Title'] = row.get('Title_imdb')
+    integrated_row['Year'] = row.get('Year_imdb')
+    # For Runtime_Minutes, Description, Director, and Revenue, use whichever is presnet.
+    integrated_row['Runtime_Minutes'] = row.get('Runtime_Minutes_imdb') or row.get('Runtime_Minutes_tmdb')
+    integrated_row['Description'] = row.get('Description_imdb') or row.get('Description_tmdb')
+    integrated_row['Director'] = row.get('Director_imdb') or row.get('Director_tmdb')
+    integrated_row['Revenue_Millions'] = row.get('Revenue_Millions_imdb') or row.get('Revenue_Millions_tmdb')
+
+    # For genres, unify them into a single string. Example:
+    imdb_genre = row.get('Genre_imdb', '')
+    tmdb_genres = row.get('Genre_tmdb', '')
+    # Combine them (simple approach):
+    all_genres = set()
+    if pd.notnull(imdb_genre):
+        all_genres.update([g.strip() for g in imdb_genre.split(',')])
+    if pd.notnull(tmdb_genres):
+        all_genres.update([g.strip() for g in tmdb_genres.split(',')])
+
+    #top 3 genres from the combo of both fields
+    all_genres = list(all_genres)[:3]
+    integrated_row['Genre'] = ', '.join(sorted(all_genres)) if all_genres else None
+
+    # Actors are similar to Genre but there is no limit on the number of actors.
+    imdb_actors = row.get('Actors_imdb', '')
+    tmdb_actors = row.get('Actors_tmdb', '')
+    # Combine them:
+    all_actors = set()
+    if pd.notnull(imdb_actors):
+        all_actors.update([a.strip() for a in imdb_actors.split(',')])
+    if pd.notnull(tmdb_actors):
+        all_actors.update([a.strip() for a in tmdb_actors.split(',')])
+
+    integrated_row['Actors'] = ', '.join(sorted(all_actors)) if all_actors else None
+
+    # Fill in other fields
+    integrated_row['Original_Title'] = row.get('Original_Title')
+    integrated_row['Rating_imdb'] = row.get('Rating_imdb')
+    integrated_row['Votes_imdb'] = row.get('Votes_imdb')
+    integrated_row['Rating_tmdb'] = row.get('Rating_tmdb')
+    integrated_row['Votes_tmdb'] = row.get('Votes_tmdb')
+    integrated_row['Metascore'] = row.get('Metascore')
+    integrated_row['Popularity'] = row.get('Popularity')
+    integrated_row['Language'] = row.get('Language')
+
+
+    # Append the integrated row to the final integrated df
+    integrated_rows.append(integrated_row)
+
+merged_df = pd.DataFrame(integrated_rows)
+merged_df['Year'] = pd.to_datetime(merged_df['Year'].astype(str), format='%Y', errors='coerce')
+merged_df['Year'] = merged_df['Year'].apply(lambda x: x.strftime('%Y'))
+
+# Profiling and exploration of the integrated datasets
+
+profile_merged = ProfileReport(merged_df, title="Data Quality Report of the integrated dataset", explorative=True)
+profile_merged.to_notebook_iframe()
+
+# Save the report to an HTML file
+profile_merged.to_file(os.path.join(PROJECT_DIR, "merged_report.html"))
+
+#how many movies from IMDB did not match with TMDB
+imdb_titles = set(imdb["Title"])
+tmdb_titles = set(tmdb["Title"])
+unmatched_imdb = imdb_titles - tmdb_titles
+unmatched_tmdb = tmdb_titles - imdb_titles
+
+print(f"Unmatched IMDB Titles: {len(unmatched_imdb)}")
+print(f"Unmatched TMDB Titles: {len(unmatched_tmdb)}")
+
+
+#Number of missing values for the revenue related to TMDB
+missing_revenue= merged_df['Revenue_Millions'].isna().sum()
+print("The missing values in the revenue is ",missing_revenue)
+
+#Number of missing values for the Metascore related to IMDB
+missing_metascore= merged_df['Metascore'].isna().sum()
+print("The missing values in the Metascore is ",missing_metascore)
+
+#The duped titles post integration
+dupe=merged_df[merged_df['Title'].duplicated(keep=False)]
+dupe
+
+# Integrated dataset cleaning
+
+# printing of the mean and median of metascore in order to understand how to fill in missing values
+print("Mean Revenue_Millions:", merged_df["Revenue_Millions"].mean())
+print("Median Revenue_Millions:", merged_df["Revenue_Millions"].median())
+
+#fill missing values for the revenue with the mean of the column due to left skweness
+merged_df['Revenue_Millions']=merged_df['Revenue_Millions'].fillna(int(merged_df['Revenue_Millions'].mean()))
+merged_df.info()
+
+# printing of the mean and median of metascore in order to understand how to fill in missing values
+print("Mean Metascore:", merged_df["Metascore"].mean())
+print("Median Metascore:", merged_df["Metascore"].median())
+
+#used mean to fill in missing values for the metascore
+merged_df['Metascore']=merged_df['Metascore'].fillna(int(merged_df['Metascore'].mean()))
+
+#used to assist in the renaming of colomns
+merged_df.info()
+
+# Save the merged DataFrame to a local file temporarily
+merged_df.to_csv(PROJECT_DIR+"Final_df.csv", index=False)
